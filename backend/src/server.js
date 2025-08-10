@@ -14,10 +14,13 @@ const app = express();
 const PORT = process.env.PORT;
 
 const __dirname = path.resolve();
-
+const allowedOrigins = [
+  "https://chatters-phi.vercel.app/",
+  "http://localhost:5173", // local React dev
+];
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: allowedOrigins,
     credentials: true, // allow frontend to send cookies
   })
 );
