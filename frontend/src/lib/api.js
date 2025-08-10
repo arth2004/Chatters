@@ -1,65 +1,74 @@
+// api.js
 import { axiosInstance } from "./axios";
 
-export const signup = async (signupData) => {
-  const response = await axiosInstance.post("/auth/signup", signupData);
-  return response.data;
-};
+/**
+ * Global response interceptor
+ * - lets us handle 401 in one place
+ * - optional: show a toast or redirect to login
+ */
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // you can inspect error.response?.status
+    if (error.response?.status === 401) {
+      // e.g., optional global handling:
+      // window.location.href = "/login";
+      // or dispatch logout action
+      console.warn("Unauthorized — maybe redirect to login");
+    }
+    return Promise.reject(error);
+  }
+);
 
-export const login = async (loginData) => {
-  const response = await axiosInstance.post("/auth/login", loginData);
-  return response.data;
-};
-export const logout = async () => {
-  const response = await axiosInstance.post("/auth/logout");
-  return response.data;
-};
+// simple helper to extract data and keep functions concise
+const getData = (res) => res.data;
 
+export const signup = (signupData) =>
+  axiosInstance.post("/auth/signup", signupData).then(getData);
+
+export const login = (loginData) =>
+  axiosInstance.post("/auth/login", loginData).then(getData);
+
+export const logout = () =>
+  axiosInstance.post("/auth/logout").then(getData);
+
+/**
+ * getAuthUser: special-case to return null on error (common pattern)
+ * so UI can treat `null` as unauthenticated without try/catch everywhere.
+ */
 export const getAuthUser = async () => {
   try {
     const res = await axiosInstance.get("/auth/me");
     return res.data;
-  } catch (error) {
-    console.log("Error in getAuthUser:", error);
+  } catch (err) {
+    // optionally inspect err.response?.status === 401
+    console.log("Error in getAuthUser:", err);
     return null;
   }
 };
 
-export const completeOnboarding = async (userData) => {
-  const response = await axiosInstance.post("/auth/onboarding", userData);
-  return response.data;
-};
+export const completeOnboarding = (userData) =>
+  axiosInstance.post("/auth/onboarding", userData).then(getData);
 
-export async function getUserFriends() {
-  const response = await axiosInstance.get("/users/friends");
-  return response.data;
-}
+export const getUserFriends = () =>
+  axiosInstance.get("/users/friends").then(getData);
 
-export async function getRecommendedUsers() {
-  const response = await axiosInstance.get("/users");
-  return response.data;
-}
+export const getRecommendedUsers = () =>
+  axiosInstance.get("/users").then(getData);
 
-export async function getOutgoingFriendReqs() {
-  const response = await axiosInstance.get("/users/outgoing-friend-requests");
-  return response.data;
-}
+export const getOutgoingFriendReqs = () =>
+  axiosInstance.get("/users/outgoing-friend-requests").then(getData);
 
-export async function sendFriendRequest(userId) {
-  const response = await axiosInstance.post(`/users/friend-request/${userId}`);
-  return response.data;
-}
+export const sendFriendRequest = (userId) =>
+  axiosInstance.post(`/users/friend-request/${userId}`).then(getData);
 
-export async function getFriendRequests() {
-  const response = await axiosInstance.get("/users/friend-requests");
-  return response.data;
-}
+export const getFriendRequests = () =>
+  axiosInstance.get("/users/friend-requests").then(getData);
 
-export async function acceptFriendRequest(requestId) {
-  const response = await axiosInstance.put(`/users/friend-request/${requestId}/accept`);
-  return response.data;
-}
+export const acceptFriendRequest = (requestId) =>
+  axiosInstance
+    .put(`/users/friend-request/${requestId}/accept`)
+    .then(getData);
 
-export async function getStreamToken() {
-  const response = await axiosInstance.get("/chat/token");
-  return response.data;
-}
+export const getStreamToken = () =>
+  axiosInstance.get("/chat/token").then(getData);
