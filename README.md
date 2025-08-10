@@ -1,4 +1,4 @@
-# Chatters
+# Streamify
 
 **Orchestrates real-time messaging and video via Stream SDK (stream-chat v8.60.0) with JWT token auth (7-day expiry).**
 
