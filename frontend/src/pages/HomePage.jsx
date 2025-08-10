@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import {
   getOutgoingFriendReqs,
   getRecommendedUsers,
@@ -16,7 +16,6 @@ import NoFriendsFound from "../components/NoFriendsFound";
 
 const HomePage = () => {
   const queryClient = useQueryClient();
-  const [outgoingRequestsIds, setOutgoingRequestsIds] = useState(new Set());
 
   const { data: friends = [], isLoading: loadingFriends } = useQuery({
     queryKey: ["friends"],
@@ -28,25 +27,62 @@ const HomePage = () => {
     queryFn: getRecommendedUsers,
   });
 
-  const { data: outgoingFriendReqs } = useQuery({
+  // Make this query less chatty: disable refetchOnWindowFocus and set a staleTime
+  const { data: outgoingFriendReqs = [] } = useQuery({
     queryKey: ["outgoingFriendReqs"],
     queryFn: getOutgoingFriendReqs,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
   });
 
-  const { mutate: sendRequestMutation, isPending } = useMutation({
-    mutationFn: sendFriendRequest,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["outgoingFriendReqs"] }),
-  });
-
-  useEffect(() => {
-    const outgoingIds = new Set();
-    if (outgoingFriendReqs && outgoingFriendReqs.length > 0) {
+  // Derive the Set with useMemo — no state + no useEffect needed (stable identity)
+  const outgoingRequestsIds = useMemo(() => {
+    const s = new Set();
+    if (Array.isArray(outgoingFriendReqs) && outgoingFriendReqs.length > 0) {
       outgoingFriendReqs.forEach((req) => {
-        outgoingIds.add(req.recipient._id);
+        // try safety for different shapes
+        const recipientId =
+          req?.recipient?._id ?? req?.recipient ?? req?.recipientId ?? req?.recipient?._id;
+        // sometimes the API returns recipient object; sometimes just id
+        if (typeof recipientId === "string") s.add(recipientId);
+        else if (recipientId && recipientId._id) s.add(recipientId._id);
       });
-      setOutgoingRequestsIds(outgoingIds);
     }
+    return s;
   }, [outgoingFriendReqs]);
+
+  // Optimistic send request mutation
+  const { mutate: sendRequestMutation, isLoading: isSending } = useMutation({
+    mutationFn: sendFriendRequest,
+    onMutate: async (userId) => {
+      // cancel any outgoingReqs fetches so we can safely patch cache
+      await queryClient.cancelQueries({ queryKey: ["outgoingFriendReqs"] });
+
+      // snapshot previous outgoing list
+      const previous = queryClient.getQueryData(["outgoingFriendReqs"]) || [];
+
+      // optimistic update: add a synthetic entry for the recipient (shape depends on your API)
+      const optimisticEntry = { recipient: { _id: userId } };
+      queryClient.setQueryData(["outgoingFriendReqs"], (old = []) => [...old, optimisticEntry]);
+
+      // also optionally mark recommendedUsers locally to avoid re-fetch
+      queryClient.setQueryData(["users"], (old = []) =>
+        (old || []).map((u) => (u._id === userId ? { ...u, __requestSent: true } : u))
+      );
+
+      return { previous };
+    },
+    onError: (err, userId, context) => {
+      // rollback
+      queryClient.setQueryData(["outgoingFriendReqs"], context?.previous ?? []);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onSettled: () => {
+      // ensure fresh server state eventually
+      queryClient.invalidateQueries({ queryKey: ["outgoingFriendReqs"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -99,7 +135,9 @@ const HomePage = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {recommendedUsers.map((user) => {
-                const hasRequestBeenSent = outgoingRequestsIds.has(user._id);
+                // prefer optimistic flag if present
+                const hasRequestBeenSent =
+                  outgoingRequestsIds.has(user._id) || user.__requestSent === true;
 
                 return (
                   <div
@@ -143,7 +181,7 @@ const HomePage = () => {
                           hasRequestBeenSent ? "btn-disabled" : "btn-primary"
                         } `}
                         onClick={() => sendRequestMutation(user._id)}
-                        disabled={hasRequestBeenSent || isPending}
+                        disabled={hasRequestBeenSent || isSending}
                       >
                         {hasRequestBeenSent ? (
                           <>
